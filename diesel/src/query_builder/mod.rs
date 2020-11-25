@@ -136,6 +136,17 @@ pub trait SelectQuery {
     type SqlType;
 }
 
+/// Indicates that a type has specific `SELECT` clause, and could load by columns.
+///
+/// This trait is implemented for select_by statements, with columns information rather
+/// than only SQL type compared to `SelectQuery`. A statement implementing `SelectByQuery`
+/// is not necessary a select statements, it might also requires `SelectQuery` in order to
+/// be able to be executed.
+pub trait SelectByQuery {
+    /// The columns of the `SELECT` clause
+    type Expression;
+}
+
 /// An untyped fragment of SQL.
 ///
 /// This may be a complete SQL command (such as an update statement without a

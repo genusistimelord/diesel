@@ -28,8 +28,9 @@ use super::{AstPass, Query, QueryFragment};
 use crate::backend::Backend;
 use crate::expression::subselect::ValidSubselect;
 use crate::expression::*;
+use crate::expression::select_by::SelectBy;
 use crate::query_builder::limit_offset_clause::LimitOffsetClause;
-use crate::query_builder::{QueryId, SelectQuery};
+use crate::query_builder::{QueryId, SelectByQuery, SelectQuery};
 use crate::query_source::joins::{AppendSelection, Inner, Join};
 use crate::query_source::*;
 use crate::result::QueryResult;
@@ -115,6 +116,16 @@ where
     S: SelectClauseExpression<F>,
 {
     type SqlType = S::SelectClauseSqlType;
+}
+
+impl<F, T, D, W, O, LOf, G, LC, ST> SelectByQuery
+    for SelectStatement<F, SelectClause<SelectBy<T>>, D, W, O, LOf, G, LC>
+where
+    ST: TypedExpressionType,
+    SelectBy<T>: Expression<SqlType = ST>,
+    Self: SelectQuery<SqlType = ST>,
+{
+    type Expression = SelectBy<T>;
 }
 
 impl<F, S, D, W, O, LOf, G, LC, DB> QueryFragment<DB> for SelectStatement<F, S, D, W, O, LOf, G, LC>

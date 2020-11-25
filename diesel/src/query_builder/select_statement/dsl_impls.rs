@@ -3,6 +3,7 @@ use crate::associations::HasTable;
 use crate::backend::Backend;
 use crate::dsl::AsExprOf;
 use crate::expression::nullable::Nullable;
+use crate::expression::select_by::SelectBy;
 use crate::expression::*;
 use crate::insertable::Insertable;
 use crate::query_builder::distinct_clause::*;
@@ -17,7 +18,7 @@ use crate::query_builder::select_clause::*;
 use crate::query_builder::update_statement::*;
 use crate::query_builder::where_clause::*;
 use crate::query_builder::{
-    AsQuery, IntoBoxedClause, Query, QueryFragment, SelectQuery, SelectStatement,
+    AsQuery, IntoBoxedClause, Query, QueryFragment, SelectByQuery, SelectQuery, SelectStatement,
 };
 use crate::query_dsl::boxed_dsl::BoxedDsl;
 use crate::query_dsl::methods::*;
@@ -59,6 +60,31 @@ where
     fn select(self, selection: Selection) -> Self::Output {
         SelectStatement::new(
             SelectClause(selection),
+            self.from,
+            self.distinct,
+            self.where_clause,
+            self.order,
+            self.limit_offset,
+            self.group_by,
+            self.locking,
+        )
+    }
+}
+
+impl<SE, F, S, D, W, O, LOf, G, LC, Selection> SelectByDsl<Selection>
+    for SelectStatement<F, S, D, W, O, LOf, G, LC>
+where
+    SE: Expression,
+    G: ValidGroupByClause,
+    Selection: Selectable<Expression = SE> + ValidGrouping<G::Expressions>,
+    Self: SelectDsl<SE>,
+    SelectStatement<F, SelectClause<SelectBy<Selection>>, D, W, O, LOf, G, LC>: SelectByQuery,
+{
+    type Output = SelectStatement<F, SelectClause<SelectBy<Selection>>, D, W, O, LOf, G, LC>;
+
+    fn select_by(self) -> Self::Output {
+        SelectStatement::new(
+            SelectClause(SelectBy::new()),
             self.from,
             self.distinct,
             self.where_clause,

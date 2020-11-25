@@ -16,7 +16,7 @@
 use crate::backend::Backend;
 use crate::connection::Connection;
 use crate::expression::count::CountStar;
-use crate::expression::Expression;
+use crate::expression::{Expression, Selectable};
 use crate::helper_types::*;
 use crate::query_builder::locking_clause as lock;
 use crate::query_source::{joins, Table};
@@ -39,6 +39,8 @@ mod nullable_select_dsl;
 mod offset_dsl;
 mod order_dsl;
 mod save_changes_dsl;
+#[doc(hidden)]
+pub mod select_by_dsl;
 #[doc(hidden)]
 pub mod select_dsl;
 mod single_value_dsl;
@@ -68,6 +70,7 @@ pub mod methods {
     pub use super::nullable_select_dsl::SelectNullableDsl;
     pub use super::offset_dsl::OffsetDsl;
     pub use super::order_dsl::{OrderDsl, ThenOrderDsl};
+    pub use super::select_by_dsl::SelectByDsl;
     pub use super::select_dsl::SelectDsl;
     pub use super::single_value_dsl::SingleValueDsl;
 }
@@ -285,6 +288,135 @@ pub trait QueryDsl: Sized {
         Self: methods::SelectDsl<Selection>,
     {
         methods::SelectDsl::select(self, selection)
+    }
+
+    /// Adds a `SELECT` clause to the query using based on a struct implementing [`Selectable`].
+    ///
+    /// If there was already a select clause present, it will be overridden.
+    /// For example, `foo.select(bar).select_by::<Baz>()` will produce the same
+    /// query as `foo.select_by::<Baz>()`, `foo.select_by::<Baz>().select(bar)`
+    /// as `foo.select(bar)` and `foo.select_by::<Bar>().select_by::<Baz>()` as
+    /// `foo.select_by::<Baz>()`
+    ///
+    /// `select_by` has slightly stricter bounds on its arguments than other
+    /// methods. In particular, the select clause constructed by `Selectable`
+    /// must be valid for the current query.
+    ///
+    /// [`Selectable`]: ../expression/trait.Selectable.html
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # include!("../doctest_setup.rs");
+    /// # use schema::users;
+    /// #
+    /// # #[derive(PartialEq, Eq, Debug, Clone, Queryable, Selectable)]
+    /// # #[table_name = "users"]
+    /// # pub struct UserName(#[column_name = "name"] String);
+    /// #
+    /// # fn main() {
+    /// #     run_test().unwrap();
+    /// # }
+    /// #
+    /// # fn run_test() -> QueryResult<()> {
+    /// #     use self::users::dsl::*;
+    /// #     let connection = establish_connection();
+    /// // By default, all columns will be selected
+    /// let all_users = users.load::<(i32, String)>(&connection)?;
+    /// assert_eq!(vec![(1, String::from("Sean")), (2, String::from("Tess"))], all_users);
+    ///
+    /// let all_names = users.select_by::<UserName>().load::<UserName>(&connection)?;
+    /// assert_eq!(vec![UserName("Sean".into()), UserName("Tess".into())], all_names);
+    /// #     Ok(())
+    /// # }
+    /// ```
+    ///
+    /// ### When used with a left join
+    ///
+    /// ```rust
+    /// # include!("../doctest_setup.rs");
+    /// # use schema::{users, posts};
+    /// #
+    /// # #[derive(Queryable, PartialEq, Eq, Debug)]
+    /// # struct User {
+    /// #     id: i32,
+    /// #     name: String,
+    /// # }
+    /// #
+    /// # impl User {
+    /// #     fn new(id: i32, name: &str) -> Self {
+    /// #         User {
+    /// #             id,
+    /// #             name: name.into(),
+    /// #         }
+    /// #     }
+    /// # }
+    /// #
+    /// # #[derive(PartialEq, Eq, Debug, Clone, Queryable, Selectable)]
+    /// # #[table_name = "users"]
+    /// # pub struct UserName(#[column_name = "name"] String);
+    /// #
+    /// # #[derive(Queryable, PartialEq, Eq, Debug)]
+    /// # struct Post {
+    /// #     id: i32,
+    /// #     user_id: i32,
+    /// #     title: String,
+    /// # }
+    /// #
+    /// # impl Post {
+    /// #     fn new(id: i32, user_id: i32, title: &str) -> Self {
+    /// #         Post {
+    /// #             id,
+    /// #             user_id,
+    /// #             title: title.into(),
+    /// #         }
+    /// #     }
+    /// # }
+    /// #
+    /// # #[derive(PartialEq, Eq, Debug, Clone, Queryable, Selectable)]
+    /// # #[table_name = "posts"]
+    /// # pub struct PostTitle(#[column_name = "title"] String);
+    /// #
+    /// # fn main() {
+    /// #     run_test().unwrap();
+    /// # }
+    /// #
+    /// # fn run_test() -> QueryResult<()> {
+    /// #     let connection = establish_connection();
+    /// #     connection.execute("DELETE FROM posts")?;
+    /// #     diesel::insert_into(posts::table)
+    /// #         .values((posts::user_id.eq(1), posts::title.eq("Sean's Post")))
+    /// #         .execute(&connection)?;
+    /// #     let post_id = posts::table.select(posts::id)
+    /// #         .first::<i32>(&connection)?;
+    /// let join = users::table.left_join(posts::table);
+    ///
+    /// // By default, all columns from both tables are selected
+    /// let all_data = join.load::<(User, Option<Post>)>(&connection)?;
+    /// let expected_data = vec![
+    ///     (User::new(1, "Sean"), Some(Post::new(post_id, 1, "Sean's Post"))),
+    ///     (User::new(2, "Tess"), None),
+    /// ];
+    /// assert_eq!(expected_data, all_data);
+    ///
+    /// // Since `PostTitle` is on the right side of a left join, `Option` is
+    /// // needed.
+    /// let names_and_titles = join.select_by::<(UserName, Option<PostTitle>)>()
+    ///     .load::<(UserName, Option<PostTitle>)>(&connection)?;
+    /// let expected_data = vec![
+    ///     (UserName(String::from("Sean")), Some(PostTitle(String::from("Sean's Post")))),
+    ///     (UserName(String::from("Tess")), None),
+    /// ];
+    /// assert_eq!(expected_data, names_and_titles);
+    /// #     Ok(())
+    /// # }
+    /// ```
+    fn select_by<Selection>(self) -> SelectBy<Self, Selection>
+    where
+        Selection: Selectable,
+        Self: methods::SelectByDsl<Selection>,
+    {
+        methods::SelectByDsl::select_by(self)
     }
 
     /// Get the count of a query. This is equivalent to `.select(count_star())`
