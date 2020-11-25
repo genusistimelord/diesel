@@ -75,8 +75,7 @@ impl<SE, F, S, D, W, O, LOf, G, LC, Selection> SelectByDsl<Selection>
     for SelectStatement<F, S, D, W, O, LOf, G, LC>
 where
     SE: Expression,
-    G: ValidGroupByClause,
-    Selection: Selectable<Expression = SE> + ValidGrouping<G::Expressions>,
+    Selection: Selectable<Expression = SE>,
     Self: SelectDsl<SE>,
     SelectStatement<F, SelectClause<SelectBy<Selection>>, D, W, O, LOf, G, LC>: SelectByQuery,
 {
